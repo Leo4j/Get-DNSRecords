@@ -3,6 +3,9 @@ The script queries DNS records from the Active Directory domain, specifically fr
 
 ### Usage
 ```
+iex(new-object net.webclient).downloadstring('https://raw.githubusercontent.com/Leo4j/Get-DNSRecords/main/Get-DNSRecords.ps1')
+```
+```
 Get-DNSRecords
 ```
 ```
