@@ -155,31 +155,13 @@ function FindAllDomains{
 	$TrustTargetNames = $TrustTargetNames | Sort-Object -Unique
 	$TrustTargetNames = $TrustTargetNames | Where-Object { $_ -notin $AllDomains }
 		
-	# Remove Outbound Trust from $AllDomains
-		
-	$OutboundTrusts = @(foreach($AllDomain in $AllDomains){FindDomainTrusts -Domain $AllDomain | Where-Object { $_.TrustDirection -eq 'Outbound' } | Select-Object -ExpandProperty TargetName})
-		
 	foreach($TrustTargetName in $TrustTargetNames){
 		$AllDomains += $TrustTargetName
 	}
 		
 	$AllDomains = $AllDomains | Sort-Object -Unique
 	
-	$AllDomains = $AllDomains | Where-Object { $_ -notin $OutboundTrusts }
-	
-	### Remove Unreachable domains
-
-	$ReachableDomains = $AllDomains
-
-	foreach($AllDomain in $AllDomains){
-		$ReachableResult = $null
-		$DomainContext = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext('Domain', $AllDomain)
-		$ReachableResult = [System.DirectoryServices.ActiveDirectory.Domain]::GetDomain($DomainContext)
-		if($ReachableResult){}
-		else{$ReachableDomains = $ReachableDomains | Where-Object { $_ -ne $AllDomain }}
-	}
-
-	$ReachableDomains
+	$AllDomains
 }
 
 function Get-DNSRecords {
@@ -187,22 +169,42 @@ function Get-DNSRecords {
         [string]$Domain,
         [string]$Mode
     )
+
+	$AllDomains = FindAllDomains
+		
+	Write-Host ""
+	Write-Host "Domain Controllers:"
+	$FinalDCs = @()
+	$FinalDCs = foreach ($DM in $AllDomains) {
+	    $result = nslookup -type=all "_ldap._tcp.dc._msdcs.$DM" 2>$null
+	    if ($result) {
+		$DomainControllers = @($result | Where-Object { $_ -like '*svr hostname*' } | ForEach-Object { $_.Split('=')[-1].Trim() })
+		
+		foreach ($dc in $DomainControllers) {
+		    $dcIP = ($result | Where-Object { $_ -like "*$dc*" -AND $_ -like "*internet address*" } | Select-Object -First 1).Split('=')[-1].Trim()
+		    $dcname = $dc -replace "\.$DM","$"
+		    if ($dcIP) {
+			[PSCustomObject]@{
+				Name   = $dcname
+				IP     = $dcIP
+				Domain = $DM
+			}
+		    } else {
+			[PSCustomObject]@{
+			    Name   = $dcname
+			    IP     = "Not found"
+			    Domain = $DM
+			}
+		    }
+		}
+	    } else {
+		Write-Host "No result for domain: $DM"
+	    }
+	}
+	
+	$FinalDCs | Sort-Object Domain,Name | ft -Autosize
     
     if($Domain){
-		Write-Host ""
-		Write-Host "Domain Controllers:"
-		$result = nslookup -type=all "_ldap._tcp.dc._msdcs.$Domain" 2>$null
-        $DomainControllers = @(($result | Where-Object { $_ -like '*svr hostname*' } | Select-Object -First 1).Split('=')[-1].Trim())
-		$FinalDCs = @()
-		$FinalDCs = foreach($dc in $DomainControllers){
-			[PSCustomObject]@{
-				Name             = $dc
-				Domain           = $Domain
-			}
-		}
-		
-		$FinalDCs | Sort-Object Domain,Name | ft -Autosize
-		
         # Convert the domain into LDAP path format
         $domainDN = "DC=" + ($Domain -replace "\.", ",DC=")
         $domainDNSZonesDN = "LDAP://DC=DomainDnsZones,$domainDN"
@@ -227,25 +229,7 @@ function Get-DNSRecords {
         }
     }
     
-    else{
-		$AllDomains = FindAllDomains
-		
-		Write-Host ""
-		Write-Host "Domain Controllers:"
-		$FinalDCs = @()
-		$FinalDCs = foreach ($Domain in $AllDomains){
-			$result = nslookup -type=all "_ldap._tcp.dc._msdcs.$Domain" 2>$null
-			$DomainControllers = @(($result | Where-Object { $_ -like '*svr hostname*' } | Select-Object -First 1).Split('=')[-1].Trim())
-			foreach($dc in $DomainControllers){
-				[PSCustomObject]@{
-					Name             = $dc
-					Domain           = $Domain
-				}
-			}
-		}
-		
-		$FinalDCs | Sort-Object Domain,Name | ft -Autosize
-		
+    else{	
         $rootDSE = New-Object System.DirectoryServices.DirectoryEntry("LDAP://RootDSE")
         $domainDN = $rootDSE.Properties["defaultNamingContext"].Value
         $forestDN = $rootDSE.Properties["rootDomainNamingContext"].Value
