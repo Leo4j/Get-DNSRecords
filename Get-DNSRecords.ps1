@@ -58,7 +58,7 @@ function PopulateHosts {
 		[Object[]]$Entries
 	)
 
-	Write-Output "[*] Populating Hosts file..."
+	if(!$Silent){Write-Output "[*] Populating Hosts file..."}
 
 	$hostsPath    = "$env:SystemRoot\System32\drivers\etc\hosts"
 	$currentHosts = Get-Content $hostsPath -ErrorAction SilentlyContinue | ForEach-Object { $_.ToLower() }
@@ -123,8 +123,14 @@ function Get-DNSRecords {
     param(
 		[string]$Domain,
         [string]$Server,
-		[switch]$PopulateHosts
+		[switch]$PopulateHosts,
+		[switch]$Silent
     )
+	
+	if($Silent){
+		$ErrorActionPreference = "SilentlyContinue"
+		$WarningPreference = "SilentlyContinue"
+	}
 	
 	if(!$Domain){
 		$Domain = try{[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()}catch{}
@@ -132,8 +138,10 @@ function Get-DNSRecords {
 		if(!$Domain){$Domain = $env:USERDNSDOMAIN}
 		if(!$Domain){$Domain = try{Get-WmiObject -Namespace root\cimv2 -Class Win32_ComputerSystem | Select Domain | Format-Table -HideTableHeaders | out-string | ForEach-Object { $_.Trim() }}catch{}}
 		if(!$Domain){
-			Write-Host "[!] Please specify a target domain and server" -ForegroundColor Red
-			Write-Host ""
+			if(!$Silent){
+				Write-Host "[!] Please specify a target domain and server" -ForegroundColor Red
+				Write-Host ""
+			}
 			break
 		}
 	}
@@ -162,7 +170,7 @@ function Get-DNSRecords {
 
     $AllDNSEntries += DNSRecords -searchBase $domainDNSZonesDN -Domain $Domain
 	
-	$AllDNSEntries | ft -Autosize
+	if(!$Silent){$AllDNSEntries | ft -Autosize}
 	
 	if ($PopulateHosts) {
 	
@@ -173,8 +181,10 @@ function Get-DNSRecords {
 		}
 		
 		else{
-			Write-Host "[!] To populate the Host file you need to run from an elevated prompt" -ForegroundColor Red
-			Write-Host ""
+			if(!$Silent){
+				Write-Host "[!] To populate the Host file you need to run from an elevated prompt" -ForegroundColor Red
+				Write-Host ""
+			}
 		}
 	}
 }
