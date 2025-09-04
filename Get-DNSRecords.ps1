@@ -12,20 +12,24 @@ function DNSRecords {
     $directorySearcher.PageSize = 1000
     $directorySearcher.PropertiesToLoad.Add("dnsRecord") | Out-Null
     $directorySearcher.PropertiesToLoad.Add("DC") | Out-Null
+	$directorySearcher.PropertiesToLoad.Add("name") | Out-Null
 
     $results = $directorySearcher.FindAll()
     foreach ($result in $results) {
         $dnsRecords = $result.Properties["dnsRecord"]
-        $hostname = $result.Properties["DC"][0]
+        $hostname = $null
+        if ($result.Properties["DC"] -and $result.Properties["DC"].Count -gt 0) {
+            $hostname = $result.Properties["DC"][0]
+        } elseif ($result.Properties["name"] -and $result.Properties["name"].Count -gt 0) {
+            $hostname = $result.Properties["name"][0]
+        }
 
         if ($dnsRecords) {
             $ips = @()
 
             foreach ($record in $dnsRecords) {
                 $ip = Convert-DnsRecordToIP -recordBytes $record
-                if ($ip) {
-                    $ips += $ip
-                }
+                if ($ip) { $ips += $ip }
             }
 
             if ($ips.Count -gt 0) {
@@ -160,15 +164,19 @@ function Get-DNSRecords {
 	}
 
     $domainDN = "DC=" + ($Domain -replace "\.", ",DC=")
-    if ($Domain -and $Server) {
-        $domainDNSZonesDN = "LDAP://$Server/DC=DomainDnsZones,$domainDN"
-    } else {
-        $domainDNSZonesDN = "LDAP://DC=DomainDnsZones,$domainDN"
-    }
+    
+	$prefix = if ($Domain -and $Server) { "LDAP://$Server/" } else { "LDAP://" }
+
+    $searchBases = @(
+        "${prefix}DC=DomainDnsZones,$domainDN",
+        "${prefix}CN=MicrosoftDNS,CN=System,$domainDN"
+    )
 	
 	$AllDNSEntries = @()
 
-    $AllDNSEntries += DNSRecords -searchBase $domainDNSZonesDN -Domain $Domain
+    foreach ($sb in $searchBases) {
+        $AllDNSEntries += DNSRecords -searchBase $sb -Domain $Domain
+    }
 	
 	if(!$Silent){$AllDNSEntries | ft -Autosize}
 	
